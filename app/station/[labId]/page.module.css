@@ -1,0 +1,209 @@
+.page {
+  --accent: #2ee6d6;
+  min-height: 100dvh;
+  background: #050810;
+  background-image: radial-gradient(circle at 50% -10%, rgba(var(--accent-rgb, 46, 230, 214), 0.08), transparent 55%);
+  color: rgba(232, 248, 255, 0.92);
+  font-family: 'Trebuchet MS', sans-serif;
+}
+
+.topBar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 18px 28px;
+  background: rgba(5, 8, 16, 0.75);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(220, 236, 245, 0.8);
+  font-family: 'Orbitron', 'Trebuchet MS', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.backLink:hover {
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb, 46, 230, 214), 0.45);
+  background: rgba(var(--accent-rgb, 46, 230, 214), 0.08);
+  transform: translateX(-2px);
+}
+
+.content {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 40px 28px 80px;
+}
+
+.header {
+  margin-bottom: 40px;
+}
+
+.name {
+  margin: 0;
+  font-family: 'Orbitron', 'Trebuchet MS', sans-serif;
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 700;
+  color: var(--accent);
+  text-shadow: 0 0 24px rgba(var(--accent-rgb, 46, 230, 214), 0.4);
+}
+
+.tagline {
+  margin: 10px 0 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: rgba(210, 226, 238, 0.68);
+  max-width: 620px;
+}
+
+.section {
+  margin-bottom: 40px;
+}
+
+.sectionTitle {
+  margin: 0 0 16px;
+  font-family: 'Orbitron', 'Trebuchet MS', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(200, 220, 235, 0.5);
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.emptyNote {
+  font-size: 13.5px;
+  font-style: italic;
+  color: rgba(200, 220, 235, 0.45);
+}
+
+.agentGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.agentCard {
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.agentTop {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.statusDot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.agentName {
+  font-family: 'Orbitron', 'Trebuchet MS', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  flex: 1;
+}
+
+.agentStatus {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(200, 220, 235, 0.5);
+}
+
+.agentRole {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: rgba(200, 220, 235, 0.6);
+}
+
+.agentTask {
+  margin-top: 8px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--accent);
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.statCard {
+  padding: 18px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.statLabel {
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(200, 220, 235, 0.5);
+}
+
+.statValue {
+  margin-top: 8px;
+  font-family: 'Orbitron', 'Trebuchet MS', sans-serif;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.activityList {
+  display: flex;
+  flex-direction: column;
+}
+
+.activityRow {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.activityRow:last-child {
+  border-bottom: none;
+}
+
+.activityTime {
+  flex: none;
+  width: 84px;
+  font-family: 'Orbitron', 'Trebuchet MS', sans-serif;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+.activityMessage {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: rgba(220, 236, 245, 0.85);
+}

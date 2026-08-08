@@ -10,11 +10,15 @@ export interface PodDef {
   angle: number;
 }
 
+/** Generic, non-trademarked iconography — see IconGlyph in DockBar for the SVGs. */
+export type DockIconKind = 'bag' | 'printer' | 'box' | 'storefront' | 'card' | 'chat';
+
 export interface DockItemDef {
   key: string;
   name: string;
-  label: string;
+  icon: DockIconKind;
   color: number;
+  connected: boolean;
 }
 
 export const THEME = {
@@ -67,13 +71,15 @@ export const THEME = {
     zoomDecay: 8,
   },
 
+  // connected: true only for Etsy + Printify, matching POD Lab's mock
+  // "Store Status: Connected (Etsy + Printify)" — everything else is a future hook
   dock: [
-    { key: 'etsy', name: 'Etsy', label: 'E', color: 0xff5a00 },
-    { key: 'printify', name: 'Printify', label: 'P', color: 0x00c9a7 },
-    { key: 'amazon', name: 'Amazon', label: 'A', color: 0xffcc00 },
-    { key: 'shopify', name: 'Shopify', label: 'S', color: 0x95e35b },
-    { key: 'stripe', name: 'Stripe', label: '$', color: 0x6772e5 },
-    { key: 'discord', name: 'Discord', label: 'D', color: 0x7289da },
+    { key: 'etsy', name: 'Etsy', icon: 'bag', color: 0xff5a00, connected: true },
+    { key: 'printify', name: 'Printify', icon: 'printer', color: 0x00c9a7, connected: true },
+    { key: 'amazon', name: 'Amazon', icon: 'box', color: 0xffcc00, connected: false },
+    { key: 'shopify', name: 'Shopify', icon: 'storefront', color: 0x95e35b, connected: false },
+    { key: 'stripe', name: 'Stripe', icon: 'card', color: 0x6772e5, connected: false },
+    { key: 'discord', name: 'Discord', icon: 'chat', color: 0x7289da, connected: false },
   ] satisfies DockItemDef[],
 };
 
@@ -92,4 +98,18 @@ export type PodKey = 'hudmeta' | (typeof THEME.pods)[number]['key'];
 export function getStructureAccent(key: string): number {
   if (key === THEME.hudmeta.key) return THEME.hudmeta.accent;
   return THEME.pods.find((p) => p.key === key)?.accent ?? THEME.hudmeta.accent;
+}
+
+/** /station/[labId] route slugs — kebab-case, distinct from the internal camelCase PodKey. */
+export const POD_SLUGS: Record<PodKey, string> = {
+  hudmeta: 'hudmeta',
+  devLab: 'dev-lab',
+  podLab: 'pod-lab',
+  contentLab: 'content-lab',
+  research: 'research-trading',
+  revenueBay: 'revenue-bay',
+};
+
+export function podKeyFromSlug(slug: string): PodKey | undefined {
+  return (Object.keys(POD_SLUGS) as PodKey[]).find((key) => POD_SLUGS[key] === slug);
 }

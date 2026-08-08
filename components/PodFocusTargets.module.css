@@ -1,0 +1,20 @@
+.target {
+  --accent: #2ee6d6;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  /* mouse interaction stays on the Phaser canvas underneath — this overlay
+     exists purely so pods have a real, tabbable, screen-reader-visible target */
+  pointer-events: none;
+  z-index: 8;
+}
+
+.target:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.4);
+}

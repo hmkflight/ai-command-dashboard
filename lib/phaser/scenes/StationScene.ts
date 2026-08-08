@@ -4,6 +4,33 @@ import { THEME, toCssHex, type PodDef, type PodKey } from '../theme';
 const MIN_ZOOM = THEME.camera.minZoom;
 const MAX_ZOOM = THEME.camera.maxZoom;
 const CLICK_DRAG_THRESHOLD = 6;
+// Hit radius as a multiple of the structure's base size — sized to cover the
+// visible glow halo (beyond the crisp octagon outline at 1.0x) rather than just
+// the crisp shape. Capped at 1.28x: any higher and Hudmeta's hit circle starts
+// overlapping Dev Lab's (the closest pod, ~285px away on the squashed ring).
+const HIT_RADIUS_MULT = 1.28;
+// Hover only commits to a new pod after the nearest-candidate has been stable
+// for this many consecutive update() frames — a small dead-zone that stops
+// hover from thrashing when the pointer sits in a boundary/ambiguous zone.
+const HOVER_COMMIT_FRAMES = 3;
+const INTRO_LEG_MS = 1300;
+const INTRO_SESSION_KEY = 'station-intro-played';
+
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+export interface HoverAnchor extends ScreenPoint {
+  /** screen-space hit radius, so the preview card can decide to render above or below */
+  radius: number;
+}
+
+export interface StructurePosition extends HoverAnchor {
+  key: PodKey;
+  name: string;
+  accent: number;
+}
 
 /** Frame-rate-independent exponential smoothing: converges toward `target` at a
  *  constant real-time rate regardless of the current frame delta. */
@@ -15,6 +42,10 @@ function expDecay(current: number, target: number, decay: number, dt: number): n
 
 export interface StationSceneCallbacks {
   onPodClick: (key: PodKey) => void;
+  onPodHover?: (key: PodKey | null, anchor: HoverAnchor | null) => void;
+  onStructuresPositioned?: (positions: StructurePosition[]) => void;
+  reducedMotion?: boolean;
+  skipIntro?: boolean;
 }
 
 function octagonPoints(cx: number, cy: number, r: number, squash: number): Phaser.Math.Vector2[] {
@@ -74,7 +105,56 @@ function drawStructureTexture(
   g.destroy();
 }
 
-/** Soft radial-fade circle, reused (at different sizes/tints) for glow dots, motes and nebula blobs. */
+/** Thin seam lines + panel rectangles + rivet dots — a semi-transparent greeble
+ *  layer stacked on top of the crisp body texture for extra surface detail. */
+function drawGreebleTexture(scene: Phaser.Scene, key: string, size: number, accent: number) {
+  const w = size * 2.4;
+  const h = size * 2.4;
+  const cx = w / 2;
+  const cy = h / 2;
+  const g = scene.add.graphics();
+
+  g.lineStyle(1, accent, 0.55);
+  const seams = 3;
+  for (let i = 0; i < seams; i++) {
+    const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const r1 = size * Phaser.Math.FloatBetween(0.12, 0.3);
+    const r2 = size * Phaser.Math.FloatBetween(0.72, 0.94);
+    g.lineBetween(
+      cx + Math.cos(angle) * r1,
+      cy + Math.sin(angle) * r1 * 0.55,
+      cx + Math.cos(angle) * r2,
+      cy + Math.sin(angle) * r2 * 0.55,
+    );
+  }
+
+  g.lineStyle(1, accent, 0.4);
+  const panels = 3;
+  for (let i = 0; i < panels; i++) {
+    const pw = size * Phaser.Math.FloatBetween(0.16, 0.3);
+    const ph = pw * Phaser.Math.FloatBetween(0.4, 0.7);
+    const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const rr = size * Phaser.Math.FloatBetween(0.28, 0.62);
+    const px = cx + Math.cos(angle) * rr;
+    const py = cy + Math.sin(angle) * rr * 0.55;
+    g.strokeRect(px - pw / 2, py - ph / 2, pw, ph);
+  }
+
+  g.fillStyle(accent, 0.65);
+  const rivets = 5;
+  for (let i = 0; i < rivets; i++) {
+    const angle = (i / rivets) * Math.PI * 2 + Phaser.Math.FloatBetween(-0.2, 0.2);
+    const rr = size * Phaser.Math.FloatBetween(0.55, 0.85);
+    const px = cx + Math.cos(angle) * rr;
+    const py = cy + Math.sin(angle) * rr * 0.55;
+    g.fillCircle(px, py, 1.6);
+  }
+
+  g.generateTexture(key, w, h);
+  g.destroy();
+}
+
+/** Soft radial-fade circle, reused (at different sizes/tints) for stars and nebula blobs. */
 function drawSoftBlob(scene: Phaser.Scene, key: string, radius: number) {
   const w = radius * 2;
   const h = radius * 2;
@@ -89,6 +169,28 @@ function drawSoftBlob(scene: Phaser.Scene, key: string, radius: number) {
     g.fillStyle(0xffffff, Math.min(a, 0.9));
     g.fillCircle(cx, cy, r);
   }
+  g.generateTexture(key, w, h);
+  g.destroy();
+}
+
+/** A hotter/tighter radial-gradient sprite (bright pinpoint core + soft falloff) —
+ *  used for ambient motes and bridge energy-flow dots for a sparkle-like glow. */
+function drawParticleGlow(scene: Phaser.Scene, key: string, radius: number) {
+  const w = radius * 2;
+  const h = radius * 2;
+  const cx = w / 2;
+  const cy = h / 2;
+  const g = scene.add.graphics();
+  const rings = 14;
+  for (let i = rings; i >= 1; i--) {
+    const t = i / rings;
+    const r = radius * t;
+    const a = Math.pow(1 - t, 1.6) * 0.95 + 0.02;
+    g.fillStyle(0xffffff, Math.min(a, 0.98));
+    g.fillCircle(cx, cy, r);
+  }
+  g.fillStyle(0xffffff, 1);
+  g.fillCircle(cx, cy, radius * 0.12);
   g.generateTexture(key, w, h);
   g.destroy();
 }
@@ -157,6 +259,24 @@ interface GlowImage extends Phaser.GameObjects.Image {
   __baseScale?: number;
 }
 
+interface StructureInfo {
+  key: PodKey;
+  name: string;
+  accent: number;
+  x: number;
+  y: number;
+  hitRadius: number;
+  glowImages: GlowImage[];
+  main: Phaser.GameObjects.Image;
+  breathe: Phaser.GameObjects.Container;
+}
+
+interface CameraStop {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
 export default class StationScene extends Phaser.Scene {
   private targetZoom = 1;
   private targetScrollX = 0;
@@ -164,20 +284,44 @@ export default class StationScene extends Phaser.Scene {
   private isDragging = false;
   private dragStart = { x: 0, y: 0 };
   private dragStartScroll = { x: 0, y: 0 };
+  private pointerDownAt = { x: 0, y: 0 };
 
   private bridgeCurves = new Map<string, Phaser.Curves.QuadraticBezier>();
   private starLayer!: Phaser.GameObjects.Container;
   private nebulaLayer!: Phaser.GameObjects.Container;
-  private tooltipBg!: Phaser.GameObjects.Graphics;
-  private tooltipText!: Phaser.GameObjects.Text;
   private hudmetaRing?: Phaser.GameObjects.Image;
   private hudmetaSweep?: Phaser.GameObjects.Image;
   private agentTimer?: Phaser.Time.TimerEvent;
+
   private onPodClick: (key: PodKey) => void;
+  private onPodHover: (key: PodKey | null, anchor: HoverAnchor | null) => void;
+  private onStructuresPositioned: (positions: StructurePosition[]) => void;
+  private reducedMotion: boolean;
+  private skipIntro: boolean;
+
+  private structures: StructureInfo[] = [];
+  private hoveredKey: PodKey | null = null;
+  private candidateKey: PodKey | null = null;
+  private candidateStreak = 0;
+  // set the instant a click navigates away — halts the per-frame hover/position
+  // callbacks so they can't keep re-rendering the React tree (and fighting the
+  // pending route transition) while this scene waits to be torn down
+  private navigatingAway = false;
+
+  private defaultCameraStop: CameraStop = { x: 0, y: 0, zoom: 1 };
+  private introPending = false;
+  private introActive = false;
+  private introLegs: CameraStop[] = [];
+  private introLegIndex = 0;
+  private introLegStartTime = 0;
 
   constructor(callbacks?: StationSceneCallbacks) {
     super('StationScene');
     this.onPodClick = callbacks?.onPodClick ?? (() => {});
+    this.onPodHover = callbacks?.onPodHover ?? (() => {});
+    this.onStructuresPositioned = callbacks?.onStructuresPositioned ?? (() => {});
+    this.reducedMotion = callbacks?.reducedMotion ?? false;
+    this.skipIntro = callbacks?.skipIntro ?? false;
   }
 
   create() {
@@ -187,8 +331,8 @@ export default class StationScene extends Phaser.Scene {
     this.buildNebula();
     this.buildStarfield();
     this.buildBridges();
-    this.createStructure(
-      THEME.hudmeta.key,
+    this.registerStructure(
+      THEME.hudmeta.key as PodKey,
       THEME.hudmeta.name,
       0,
       0,
@@ -198,12 +342,15 @@ export default class StationScene extends Phaser.Scene {
     );
     THEME.pods.forEach((pod) => {
       const { x, y } = this.getPodPosition(pod);
-      this.createStructure(pod.key, pod.name, x, y, THEME.layout.podSize, pod.accent, false);
+      this.registerStructure(pod.key as PodKey, pod.name, x, y, THEME.layout.podSize, pod.accent, false);
     });
-    this.buildTooltip();
     this.setupCamera();
     this.setupInput();
     this.scheduleNextAgent();
+
+    if (!this.reducedMotion && !this.skipIntro) {
+      this.introPending = true;
+    }
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
     this.events.once(Phaser.Scenes.Events.DESTROY, () => this.cleanup());
@@ -211,26 +358,41 @@ export default class StationScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     const cam = this.cameras.main;
+
+    if (this.introPending) {
+      this.introPending = false;
+      this.startIntroSequence(time);
+    }
+    this.advanceIntro(time);
+
     // cap dt so a stalled tab / GC pause doesn't cause a sudden camera jump on resume
     const dt = Math.min(delta / 1000, 0.1);
     cam.zoom = expDecay(cam.zoom, this.targetZoom, THEME.camera.zoomDecay, dt);
     cam.scrollX = expDecay(cam.scrollX, this.targetScrollX, THEME.camera.scrollDecay, dt);
     cam.scrollY = expDecay(cam.scrollY, this.targetScrollY, THEME.camera.scrollDecay, dt);
 
-    const t = time * 0.00003;
-    this.starLayer.x = Math.sin(t) * 24;
-    this.starLayer.y = Math.cos(t * 0.8) * 16;
+    if (!this.reducedMotion) {
+      const t = time * 0.00003;
+      this.starLayer.x = Math.sin(t) * 24;
+      this.starLayer.y = Math.cos(t * 0.8) * 16;
 
-    const tn = time * 0.000012;
-    this.nebulaLayer.x = Math.sin(tn) * 40;
-    this.nebulaLayer.y = Math.cos(tn * 0.7) * 26;
+      const tn = time * 0.000012;
+      this.nebulaLayer.x = Math.sin(tn) * 40;
+      this.nebulaLayer.y = Math.cos(tn * 0.7) * 26;
 
-    if (this.hudmetaRing) this.hudmetaRing.rotation += delta * 0.00025;
-    if (this.hudmetaSweep) this.hudmetaSweep.rotation += delta * 0.0009;
+      if (this.hudmetaRing) this.hudmetaRing.rotation += delta * 0.00025;
+      if (this.hudmetaSweep) this.hudmetaSweep.rotation += delta * 0.0009;
+    }
+
+    if (!this.navigatingAway) {
+      this.resolveHover(cam);
+      this.reportPositions(cam);
+    }
   }
 
   private cleanup() {
     this.agentTimer?.remove();
+    this.introActive = false;
     this.tweens.killAll();
   }
 
@@ -239,9 +401,14 @@ export default class StationScene extends Phaser.Scene {
   private generateTextures() {
     drawSoftBlob(this, 'soft-dot', 18);
     drawSoftBlob(this, 'nebula-blob', 260);
+    drawParticleGlow(this, 'particle-glow', 20);
     drawDiamond(this, 'agent-diamond', 22);
     drawStructureTexture(this, 'hudmeta-body', THEME.layout.hudmetaSize, THEME.hudmeta.accent, THEME.hudmeta.core);
-    THEME.pods.forEach((pod) => drawStructureTexture(this, `${pod.key}-body`, THEME.layout.podSize, pod.accent, pod.core));
+    drawGreebleTexture(this, 'hudmeta-greeble', THEME.layout.hudmetaSize, THEME.hudmeta.accent);
+    THEME.pods.forEach((pod) => {
+      drawStructureTexture(this, `${pod.key}-body`, THEME.layout.podSize, pod.accent, pod.core);
+      drawGreebleTexture(this, `${pod.key}-greeble`, THEME.layout.podSize, pod.accent);
+    });
     drawDashedRing(this, 'ring-dashed', THEME.layout.hudmetaSize * 1.35, 3);
     drawSweepWedge(this, 'sweep-wedge', THEME.layout.hudmetaSize * 1.55);
   }
@@ -256,8 +423,8 @@ export default class StationScene extends Phaser.Scene {
 
   // -------------------------------------------------------------- structure
 
-  private createStructure(
-    key: string,
+  private registerStructure(
+    key: PodKey,
     name: string,
     x: number,
     y: number,
@@ -290,6 +457,9 @@ export default class StationScene extends Phaser.Scene {
     const main = this.add.image(0, 0, bodyKey).setScale(1);
     container.add(main);
 
+    const greeble = this.add.image(0, 0, `${key}-greeble`).setAlpha(0.55).setTint(accent);
+    container.add(greeble);
+
     if (isHud) {
       const ring = this.add
         .image(0, 0, 'ring-dashed')
@@ -305,21 +475,23 @@ export default class StationScene extends Phaser.Scene {
       container.add(sweep);
       this.hudmetaRing = ring;
       this.hudmetaSweep = sweep;
-    } else {
+    } else if (!this.reducedMotion) {
       this.buildMotes(x, y, size, accent);
     }
 
-    this.tweens.add({
-      targets: breathe,
-      scale: { from: 0.94, to: 1.08 },
-      duration: Phaser.Math.Between(3000, 5000),
-      delay: Phaser.Math.Between(0, 2200),
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
+    if (!this.reducedMotion) {
+      this.tweens.add({
+        targets: breathe,
+        scale: { from: 0.94, to: 1.08 },
+        duration: Phaser.Math.Between(3000, 5000),
+        delay: Phaser.Math.Between(0, 2200),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
 
-    const label = this.add
+    this.add
       .text(x, y - size * 1.15 - 14, name, {
         fontFamily: '"Orbitron", "Trebuchet MS", sans-serif',
         fontSize: isHud ? '20px' : '15px',
@@ -331,71 +503,139 @@ export default class StationScene extends Phaser.Scene {
       .setDepth(25)
       .setShadow(0, 0, toCssHex(accent), 8, true, true);
 
-    const hitRadius = size * 1.05;
-    container.setSize(hitRadius * 2, hitRadius * 2);
-    container.setInteractive(new Phaser.Geom.Circle(0, 0, hitRadius), Phaser.Geom.Circle.Contains);
+    // hit area covers the visible glow halo, not just the crisp octagon outline
+    const hitRadius = size * HIT_RADIUS_MULT;
 
-    container.on('pointerover', () => {
-      glowImages.forEach((img) => {
-        this.tweens.add({
-          targets: img,
-          alpha: Math.min((img.__baseAlpha ?? 0.2) * 2.2, 0.65),
-          scaleX: (img.__baseScale ?? 1) * 1.05,
-          scaleY: (img.__baseScale ?? 1) * 1.05,
-          duration: 180,
-        });
-      });
-      this.tweens.add({ targets: main, scale: 1.06, duration: 180 });
-      this.showTooltip(name, x, label.y - 22);
-      this.input.setDefaultCursor('pointer');
-    });
-
-    container.on('pointerout', () => {
-      glowImages.forEach((img) => {
-        this.tweens.add({
-          targets: img,
-          alpha: img.__baseAlpha ?? 0.2,
-          scaleX: img.__baseScale ?? 1,
-          scaleY: img.__baseScale ?? 1,
-          duration: 220,
-        });
-      });
-      this.tweens.add({ targets: main, scale: 1, duration: 220 });
-      this.hideTooltip();
-      this.input.setDefaultCursor('default');
-    });
-
-    // click (not drag) opens the full data panel — a click is a down/up pair
-    // with minimal pointer travel, distinguishing it from a camera-pan drag
-    let clickStart = { x: 0, y: 0 };
-    container.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      clickStart = { x: p.x, y: p.y };
-    });
-    container.on('pointerup', (p: Phaser.Input.Pointer) => {
-      const dist = Phaser.Math.Distance.Between(clickStart.x, clickStart.y, p.x, p.y);
-      if (dist < CLICK_DRAG_THRESHOLD) {
-        this.onPodClick(key as PodKey);
-      }
-    });
+    this.structures.push({ key, name, accent, x, y, hitRadius, glowImages, main, breathe });
 
     return container;
   }
 
   private buildMotes(x: number, y: number, size: number, accent: number) {
-    const emitter = this.add.particles(x, y, 'soft-dot', {
+    const emitter = this.add.particles(x, y, 'particle-glow', {
       x: { min: -size * 0.6, max: size * 0.6 },
       y: { min: size * 0.25, max: size * 0.65 },
       lifespan: { min: 3200, max: 5200 },
       speedY: { min: -16, max: -6 },
       speedX: { min: -5, max: 5 },
-      scale: { start: 0.32, end: 0 },
-      alpha: { start: 0.5, end: 0 },
+      scale: { start: 0.3, end: 0 },
+      alpha: { start: 0.55, end: 0 },
       frequency: 950,
       quantity: 1,
       tint: accent,
       blendMode: 'ADD',
     });
     emitter.setDepth(6);
+  }
+
+  // ------------------------------------------------------------ hover/click
+
+  /** Nearest structure whose center is within its own hit radius of a world
+   *  point — ties resolve to the closer center, never "first hit detected". */
+  private nearestStructureAt(worldX: number, worldY: number): PodKey | null {
+    let candidate: PodKey | null = null;
+    let bestDist = Infinity;
+    for (const s of this.structures) {
+      const d = Phaser.Math.Distance.Between(worldX, worldY, s.x, s.y);
+      if (d <= s.hitRadius && d < bestDist) {
+        bestDist = d;
+        candidate = s.key;
+      }
+    }
+    return candidate;
+  }
+
+  /** Every frame: find the nearest structure center within its hit radius and
+   *  only commit a hover change once that candidate has been stable for a few
+   *  frames — this resolves ambiguous/boundary zones to a single settled pod
+   *  instead of the hover state thrashing between overlapping candidates. */
+  private resolveHover(cam: Phaser.Cameras.Scene2D.Camera) {
+    if (this.isDragging) return;
+
+    const pointer = this.input.activePointer;
+    const wp = cam.getWorldPoint(pointer.x, pointer.y);
+    const candidate = this.nearestStructureAt(wp.x, wp.y);
+
+    if (candidate === this.candidateKey) {
+      this.candidateStreak++;
+    } else {
+      this.candidateKey = candidate;
+      this.candidateStreak = 1;
+    }
+
+    if (this.candidateStreak >= HOVER_COMMIT_FRAMES && candidate !== this.hoveredKey) {
+      this.setHoveredKey(candidate, cam);
+    }
+  }
+
+  private setHoveredKey(key: PodKey | null, cam: Phaser.Cameras.Scene2D.Camera) {
+    if (this.hoveredKey === key) return;
+
+    const prev = this.structures.find((s) => s.key === this.hoveredKey);
+    if (prev) this.setStructureHighlighted(prev, false);
+
+    this.hoveredKey = key;
+
+    const next = this.structures.find((s) => s.key === key);
+    if (next) this.setStructureHighlighted(next, true);
+
+    this.input.setDefaultCursor(key ? 'pointer' : 'default');
+    if (!next) this.onPodHover(null, null);
+    else this.emitHoverAnchor(next, cam);
+  }
+
+  private setStructureHighlighted(s: StructureInfo, entering: boolean) {
+    s.glowImages.forEach((img) => {
+      this.tweens.add({
+        targets: img,
+        alpha: entering ? Math.min((img.__baseAlpha ?? 0.2) * 2.2, 0.65) : (img.__baseAlpha ?? 0.2),
+        scaleX: entering ? (img.__baseScale ?? 1) * 1.05 : (img.__baseScale ?? 1),
+        scaleY: entering ? (img.__baseScale ?? 1) * 1.05 : (img.__baseScale ?? 1),
+        duration: entering ? 180 : 220,
+      });
+    });
+    this.tweens.add({ targets: s.main, scale: entering ? 1.06 : 1, duration: entering ? 180 : 220 });
+  }
+
+  /** World-to-screen projection for the DOM overlay (preview card, focus rings).
+   *  `worldView` (not `scrollX/scrollY` directly) is the correct reference here:
+   *  Phaser's scroll is anchored at the viewport center, so at zoom !== 1 a plain
+   *  `(worldX - scrollX) * zoom` is off by a zoom-dependent amount — worldView.x/y
+   *  is the world-space coordinate of the screen's top-left corner, which is what
+   *  a simple linear scale into screen space actually needs. */
+  private worldToScreen(cam: Phaser.Cameras.Scene2D.Camera, worldX: number, worldY: number): ScreenPoint {
+    return {
+      x: (worldX - cam.worldView.x) * cam.zoom,
+      y: (worldY - cam.worldView.y) * cam.zoom,
+    };
+  }
+
+  private emitHoverAnchor(s: StructureInfo, cam: Phaser.Cameras.Scene2D.Camera) {
+    const p = this.worldToScreen(cam, s.x, s.y);
+    this.onPodHover(s.key, { x: p.x, y: p.y, radius: s.hitRadius * cam.zoom });
+  }
+
+  private reportPositions(cam: Phaser.Cameras.Scene2D.Camera) {
+    this.onStructuresPositioned(
+      this.structures.map((s) => {
+        const p = this.worldToScreen(cam, s.x, s.y);
+        return {
+          key: s.key,
+          name: s.name,
+          accent: s.accent,
+          x: p.x,
+          y: p.y,
+          radius: s.hitRadius * cam.zoom,
+        };
+      }),
+    );
+
+    // the committed hover's screen anchor also needs refreshing every frame so
+    // the preview card keeps tracking during camera pan/zoom easing
+    if (this.hoveredKey) {
+      const s = this.structures.find((st) => st.key === this.hoveredKey);
+      if (s) this.emitHoverAnchor(s, cam);
+    }
   }
 
   // ---------------------------------------------------------------- bridges
@@ -448,11 +688,13 @@ export default class StationScene extends Phaser.Scene {
         g.lineBetween(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
       }
 
+      if (this.reducedMotion) return;
+
       const dot = this.add
-        .image(hubEdge.x, hubEdge.y, 'soft-dot')
+        .image(hubEdge.x, hubEdge.y, 'particle-glow')
         .setTint(pod.accent)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setScale(0.85)
+        .setScale(0.7)
         .setDepth(-9)
         .setAlpha(0);
 
@@ -523,39 +765,6 @@ export default class StationScene extends Phaser.Scene {
     });
   }
 
-  // ------------------------------------------------------------ tooltip
-
-  private buildTooltip() {
-    this.tooltipBg = this.add.graphics().setDepth(30).setVisible(false);
-    this.tooltipText = this.add
-      .text(0, 0, '', {
-        fontFamily: '"Orbitron", "Trebuchet MS", sans-serif',
-        fontSize: '12px',
-        color: '#eafcff',
-        align: 'center',
-      })
-      .setOrigin(0.5, 1)
-      .setDepth(31)
-      .setVisible(false);
-  }
-
-  private showTooltip(name: string, x: number, y: number) {
-    this.tooltipText.setText([name.toUpperCase(), 'STATUS: NOMINAL']).setPosition(x, y).setVisible(true);
-    const b = this.tooltipText.getBounds();
-    const pad = 8;
-    this.tooltipBg.clear();
-    this.tooltipBg.fillStyle(0x040608, 0.8);
-    this.tooltipBg.lineStyle(1, 0x66e8ff, 0.5);
-    this.tooltipBg.fillRoundedRect(b.x - pad, b.y - pad, b.width + pad * 2, b.height + pad * 2, 6);
-    this.tooltipBg.strokeRoundedRect(b.x - pad, b.y - pad, b.width + pad * 2, b.height + pad * 2, 6);
-    this.tooltipBg.setVisible(true);
-  }
-
-  private hideTooltip() {
-    this.tooltipText.setVisible(false);
-    this.tooltipBg.setVisible(false);
-  }
-
   // ------------------------------------------------------------ background
 
   private buildStarfield() {
@@ -607,6 +816,7 @@ export default class StationScene extends Phaser.Scene {
     this.targetZoom = zoom;
     this.targetScrollX = cam.scrollX;
     this.targetScrollY = cam.scrollY;
+    this.defaultCameraStop = { x: cam.scrollX, y: cam.scrollY, zoom };
 
     const bound = R + 900;
     cam.setBounds(-bound, -bound, bound * 2, bound * 2);
@@ -616,11 +826,95 @@ export default class StationScene extends Phaser.Scene {
     });
   }
 
+  /** Computes the scroll needed to center on a world point at a given zoom by
+   *  delegating to the camera's own centerOn (rather than hand-deriving the
+   *  formula), then restores the camera's current live position so nothing
+   *  visibly snaps — only the smoothing target changes. */
+  private scrollForCenteredView(cam: Phaser.Cameras.Scene2D.Camera, x: number, y: number, zoom: number): CameraStop {
+    const liveX = cam.scrollX;
+    const liveY = cam.scrollY;
+    const liveZoom = cam.zoom;
+
+    cam.setZoom(zoom);
+    cam.centerOn(x, y);
+    const stop: CameraStop = { x: cam.scrollX, y: cam.scrollY, zoom };
+
+    cam.setZoom(liveZoom);
+    cam.scrollX = liveX;
+    cam.scrollY = liveY;
+
+    return stop;
+  }
+
+  /** Starts the intro at `time` (the same wall-clock-accurate value `update()`
+   *  receives every frame). Progression is driven directly off that value in
+   *  `advanceIntro()` rather than `this.time.delayedCall` — under this scene's
+   *  particle/tween load, Phaser's Clock-driven timers can end up running far
+   *  slower than real time (its per-frame delta gets smoothed/clamped when the
+   *  actual frame rate drops), which silently stalls a delayedCall-based
+   *  sequence. Tying it to `time` instead keeps it exactly in sync with the
+   *  camera's own easing, which already uses that same clock. */
+  private startIntroSequence(time: number) {
+    const cam = this.cameras.main;
+    const closeZoom = Phaser.Math.Clamp(this.defaultCameraStop.zoom * 2, MIN_ZOOM, MAX_ZOOM);
+
+    this.introLegs = [
+      this.scrollForCenteredView(cam, 0, 0, closeZoom),
+      ...THEME.pods.map((pod) => {
+        const pos = this.getPodPosition(pod);
+        return this.scrollForCenteredView(cam, pos.x, pos.y, closeZoom);
+      }),
+    ];
+
+    this.introActive = true;
+    this.introLegIndex = 0;
+    this.introLegStartTime = time;
+
+    const first = this.introLegs[0];
+    cam.setZoom(first.zoom);
+    cam.scrollX = first.x;
+    cam.scrollY = first.y;
+    this.targetZoom = first.zoom;
+    this.targetScrollX = first.x;
+    this.targetScrollY = first.y;
+  }
+
+  private advanceIntro(time: number) {
+    if (!this.introActive) return;
+    if (time - this.introLegStartTime < INTRO_LEG_MS) return;
+
+    this.introLegIndex++;
+    this.introLegStartTime = time;
+
+    if (this.introLegIndex >= this.introLegs.length) {
+      this.targetZoom = this.defaultCameraStop.zoom;
+      this.targetScrollX = this.defaultCameraStop.x;
+      this.targetScrollY = this.defaultCameraStop.y;
+      this.introActive = false;
+      return;
+    }
+
+    const leg = this.introLegs[this.introLegIndex];
+    this.targetZoom = leg.zoom;
+    this.targetScrollX = leg.x;
+    this.targetScrollY = leg.y;
+  }
+
+  private cancelIntro() {
+    if (!this.introActive) return;
+    this.introActive = false;
+    this.targetZoom = this.defaultCameraStop.zoom;
+    this.targetScrollX = this.defaultCameraStop.x;
+    this.targetScrollY = this.defaultCameraStop.y;
+  }
+
   private setupInput() {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      this.cancelIntro();
       this.isDragging = true;
       this.dragStart = { x: p.x, y: p.y };
       this.dragStartScroll = { x: this.targetScrollX, y: this.targetScrollY };
+      this.pointerDownAt = { x: p.x, y: p.y };
     });
 
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
@@ -632,15 +926,30 @@ export default class StationScene extends Phaser.Scene {
       this.targetScrollY = this.dragStartScroll.y - dy;
     });
 
-    this.input.on('pointerup', () => {
+    this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
       this.isDragging = false;
+      const dist = Phaser.Math.Distance.Between(this.pointerDownAt.x, this.pointerDownAt.y, p.x, p.y);
+      if (dist < CLICK_DRAG_THRESHOLD) {
+        // resolved fresh (not from the debounced hover candidate) so a click
+        // is accurate even on the very first frame the pointer reaches a pod
+        const wp = this.cameras.main.getWorldPoint(p.x, p.y);
+        const clicked = this.nearestStructureAt(wp.x, wp.y);
+        if (clicked) {
+          this.navigatingAway = true;
+          this.setHoveredKey(null, this.cameras.main);
+          this.onPodClick(clicked);
+        }
+      }
     });
     this.input.on('pointerupoutside', () => {
       this.isDragging = false;
     });
 
     this.input.on('wheel', (_p: Phaser.Input.Pointer, _go: unknown, _dx: number, dy: number) => {
+      this.cancelIntro();
       this.targetZoom = Phaser.Math.Clamp(this.targetZoom - dy * 0.0012, MIN_ZOOM, MAX_ZOOM);
     });
   }
 }
+
+export { INTRO_SESSION_KEY };
