@@ -1,8 +1,21 @@
 import Phaser from 'phaser';
-import { THEME, toCssHex, type PodDef } from '../theme';
+import { THEME, toCssHex, type PodDef, type PodKey } from '../theme';
 
 const MIN_ZOOM = THEME.camera.minZoom;
 const MAX_ZOOM = THEME.camera.maxZoom;
+const CLICK_DRAG_THRESHOLD = 6;
+
+/** Frame-rate-independent exponential smoothing: converges toward `target` at a
+ *  constant real-time rate regardless of the current frame delta. */
+function expDecay(current: number, target: number, decay: number, dt: number): number {
+  const diff = target - current;
+  if (Math.abs(diff) < 0.01) return target;
+  return current + diff * (1 - Math.exp(-decay * dt));
+}
+
+export interface StationSceneCallbacks {
+  onPodClick: (key: PodKey) => void;
+}
 
 function octagonPoints(cx: number, cy: number, r: number, squash: number): Phaser.Math.Vector2[] {
   const pts: Phaser.Math.Vector2[] = [];
@@ -160,9 +173,11 @@ export default class StationScene extends Phaser.Scene {
   private hudmetaRing?: Phaser.GameObjects.Image;
   private hudmetaSweep?: Phaser.GameObjects.Image;
   private agentTimer?: Phaser.Time.TimerEvent;
+  private onPodClick: (key: PodKey) => void;
 
-  constructor() {
+  constructor(callbacks?: StationSceneCallbacks) {
     super('StationScene');
+    this.onPodClick = callbacks?.onPodClick ?? (() => {});
   }
 
   create() {
@@ -196,9 +211,11 @@ export default class StationScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     const cam = this.cameras.main;
-    cam.zoom = Phaser.Math.Linear(cam.zoom, this.targetZoom, THEME.camera.zoomLerp);
-    cam.scrollX = Phaser.Math.Linear(cam.scrollX, this.targetScrollX, THEME.camera.lerp);
-    cam.scrollY = Phaser.Math.Linear(cam.scrollY, this.targetScrollY, THEME.camera.lerp);
+    // cap dt so a stalled tab / GC pause doesn't cause a sudden camera jump on resume
+    const dt = Math.min(delta / 1000, 0.1);
+    cam.zoom = expDecay(cam.zoom, this.targetZoom, THEME.camera.zoomDecay, dt);
+    cam.scrollX = expDecay(cam.scrollX, this.targetScrollX, THEME.camera.scrollDecay, dt);
+    cam.scrollY = expDecay(cam.scrollY, this.targetScrollY, THEME.camera.scrollDecay, dt);
 
     const t = time * 0.00003;
     this.starLayer.x = Math.sin(t) * 24;
@@ -330,6 +347,7 @@ export default class StationScene extends Phaser.Scene {
       });
       this.tweens.add({ targets: main, scale: 1.06, duration: 180 });
       this.showTooltip(name, x, label.y - 22);
+      this.input.setDefaultCursor('pointer');
     });
 
     container.on('pointerout', () => {
@@ -344,6 +362,20 @@ export default class StationScene extends Phaser.Scene {
       });
       this.tweens.add({ targets: main, scale: 1, duration: 220 });
       this.hideTooltip();
+      this.input.setDefaultCursor('default');
+    });
+
+    // click (not drag) opens the full data panel — a click is a down/up pair
+    // with minimal pointer travel, distinguishing it from a camera-pan drag
+    let clickStart = { x: 0, y: 0 };
+    container.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      clickStart = { x: p.x, y: p.y };
+    });
+    container.on('pointerup', (p: Phaser.Input.Pointer) => {
+      const dist = Phaser.Math.Distance.Between(clickStart.x, clickStart.y, p.x, p.y);
+      if (dist < CLICK_DRAG_THRESHOLD) {
+        this.onPodClick(key as PodKey);
+      }
     });
 
     return container;
@@ -378,14 +410,25 @@ export default class StationScene extends Phaser.Scene {
       const nx = podPos.x / dist;
       const ny = podPos.y / dist;
 
-      const hubEdge = new Phaser.Math.Vector2(nx * THEME.layout.hudmetaSize * 1.4, ny * THEME.layout.hudmetaSize * 1.4);
-      const podEdge = new Phaser.Math.Vector2(
-        podPos.x - nx * THEME.layout.podSize * 1.3,
-        podPos.y - ny * THEME.layout.podSize * 1.3,
-      );
+      // The pod ring is squashed vertically (isoSquash) for the isometric read, so
+      // pods near the top/bottom of the ring sit much closer to Hudmeta than pods
+      // near the sides. Fixed pixel insets can then overlap almost entirely (e.g.
+      // Dev Lab at the top), collapsing the bridge to a near-invisible sliver — so
+      // insets are capped to a safe fraction of the actual hub-to-pod distance.
+      const rawHubInset = THEME.layout.hudmetaSize * 1.4;
+      const rawPodInset = THEME.layout.podSize * 1.3;
+      const maxTotalInset = dist * 0.8;
+      const insetScale = Math.min(1, maxTotalInset / (rawHubInset + rawPodInset));
+      const hubInset = rawHubInset * insetScale;
+      const podInset = rawPodInset * insetScale;
 
+      const hubEdge = new Phaser.Math.Vector2(nx * hubInset, ny * hubInset);
+      const podEdge = new Phaser.Math.Vector2(podPos.x - nx * podInset, podPos.y - ny * podInset);
+
+      const curveLen = dist - hubInset - podInset;
       const perp = new Phaser.Math.Vector2(-ny, nx);
-      const bow = Phaser.Math.Between(40, 75) * (Phaser.Math.Between(0, 1) === 0 ? -1 : 1);
+      const bowMagnitude = Math.min(Phaser.Math.Between(40, 75), curveLen * 0.9);
+      const bow = bowMagnitude * (Phaser.Math.Between(0, 1) === 0 ? -1 : 1);
       const mid = new Phaser.Math.Vector2(
         (hubEdge.x + podEdge.x) / 2 + perp.x * bow,
         (hubEdge.y + podEdge.y) / 2 + perp.y * bow,

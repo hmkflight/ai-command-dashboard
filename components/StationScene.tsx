@@ -2,13 +2,19 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type Phaser from 'phaser';
-import { THEME, toCssHex } from '@/lib/phaser/theme';
+import { THEME, toRgbTriplet, getStructureAccent, type PodKey } from '@/lib/phaser/theme';
+import { MOCK_LAB_DATA } from '@/lib/mockData';
+import LabPanel from './LabPanel';
 import styles from './StationScene.module.css';
 
 export default function StationScene() {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ready, setReady] = useState(false);
+  const [activePod, setActivePod] = useState<PodKey | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -21,6 +27,13 @@ export default function StationScene() {
 
       if (cancelled || !hostRef.current) return;
 
+      const scene = new StationSceneClass({
+        onPodClick: (key: PodKey) => {
+          setActivePod(key);
+          setPanelOpen(true);
+        },
+      });
+
       const game = new PhaserLib.Game({
         type: PhaserLib.AUTO,
         parent: hostRef.current,
@@ -30,7 +43,7 @@ export default function StationScene() {
           width: hostRef.current.clientWidth,
           height: hostRef.current.clientHeight,
         },
-        scene: [StationSceneClass],
+        scene,
         render: { antialias: true, roundPixels: false },
       });
 
@@ -45,31 +58,48 @@ export default function StationScene() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, []);
+
+  const handleDockClick = (name: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(`${name} — not connected yet`);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
+  };
+
+  const closePanel = () => setPanelOpen(false);
+
   return (
     <div className={styles.wrapper}>
       <div ref={hostRef} className={styles.canvasHost} />
       {!ready && <div className={styles.loading}>Initializing Station Uplink&hellip;</div>}
 
+      <LabPanel
+        data={activePod ? MOCK_LAB_DATA[activePod] : null}
+        accent={activePod ? getStructureAccent(activePod) : THEME.hudmeta.accent}
+        open={panelOpen}
+        onClose={closePanel}
+      />
+
       <div className={styles.dock}>
         {THEME.dock.map((item) => (
-          <div
+          <button
             key={item.key}
+            type="button"
             className={styles.dockItem}
-            style={{ ['--glow' as string]: hexToRgbTriplet(item.color) }}
+            style={{ ['--glow' as string]: toRgbTriplet(item.color) }}
+            onClick={() => handleDockClick(item.name)}
           >
             {item.label}
             <span className={styles.dockLabel}>{item.name}</span>
-          </div>
+          </button>
         ))}
       </div>
+
+      {toast && <div className={styles.toast}>{toast}</div>}
     </div>
   );
-}
-
-function hexToRgbTriplet(color: number): string {
-  const hex = toCssHex(color);
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `${r}, ${g}, ${b}`;
 }

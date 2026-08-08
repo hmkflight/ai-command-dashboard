@@ -49,6 +49,7 @@
   position: relative;
   width: 42px;
   height: 42px;
+  padding: 0;
   border-radius: 11px;
   display: flex;
   align-items: center;
@@ -60,13 +61,18 @@
   background: linear-gradient(180deg, rgba(var(--glow), 0.16), rgba(var(--glow), 0.05));
   border: 1px solid rgba(var(--glow), 0.5);
   box-shadow: 0 0 10px rgba(var(--glow), 0.35), inset 0 0 8px rgba(var(--glow), 0.18);
-  cursor: default;
+  cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease;
 }
 
-.dockItem:hover {
+.dockItem:hover,
+.dockItem:focus-visible {
   transform: translateY(-3px);
   box-shadow: 0 0 18px rgba(var(--glow), 0.6), inset 0 0 10px rgba(var(--glow), 0.3);
+}
+
+.dockItem:active {
+  transform: translateY(-1px) scale(0.96);
 }
 
 .dockLabel {
@@ -88,6 +94,38 @@
   transition: opacity 140ms ease;
 }
 
-.dockItem:hover .dockLabel {
+.dockItem:hover .dockLabel,
+.dockItem:focus-visible .dockLabel {
   opacity: 1;
+}
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 78px;
+  transform: translateX(-50%);
+  z-index: 15;
+  padding: 9px 16px;
+  border-radius: 9px;
+  background: rgba(6, 10, 20, 0.92);
+  border: 1px solid rgba(120, 210, 255, 0.3);
+  box-shadow: 0 0 20px rgba(46, 230, 214, 0.15);
+  color: rgba(235, 250, 255, 0.92);
+  font-family: 'Orbitron', 'Trebuchet MS', sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: toastIn 220ms ease;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }

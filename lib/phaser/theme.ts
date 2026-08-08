@@ -61,8 +61,10 @@ export const THEME = {
   camera: {
     minZoom: 0.35,
     maxZoom: 1.9,
-    lerp: 0.15,
-    zoomLerp: 0.12,
+    // exponential-decay rates (per second) for delta-time-based smoothing —
+    // higher = snappier convergence to the drag/zoom target, frame-rate independent
+    scrollDecay: 10,
+    zoomDecay: 8,
   },
 
   dock: [
@@ -77,4 +79,17 @@ export const THEME = {
 
 export function toCssHex(value: number): string {
   return `#${value.toString(16).padStart(6, '0')}`;
+}
+
+/** "r, g, b" — for building rgba()/currentColor-friendly CSS custom properties. */
+export function toRgbTriplet(value: number): string {
+  return `${(value >> 16) & 0xff}, ${(value >> 8) & 0xff}, ${value & 0xff}`;
+}
+
+/** All structure keys — Hudmeta plus the five pods — used to key mock data & panels. */
+export type PodKey = 'hudmeta' | (typeof THEME.pods)[number]['key'];
+
+export function getStructureAccent(key: string): number {
+  if (key === THEME.hudmeta.key) return THEME.hudmeta.accent;
+  return THEME.pods.find((p) => p.key === key)?.accent ?? THEME.hudmeta.accent;
 }

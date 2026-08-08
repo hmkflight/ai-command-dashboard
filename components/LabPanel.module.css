@@ -1,0 +1,233 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(3, 5, 10, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.overlayOpen {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.panel {
+  --accent: #2ee6d6;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 92vw);
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(8, 12, 22, 0.97), rgba(5, 8, 16, 0.98));
+  border-left: 1px solid rgba(var(--accent-rgb, 46, 230, 214), 0.35);
+  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.55), inset 1px 0 24px rgba(var(--accent-rgb, 46, 230, 214), 0.05);
+  backdrop-filter: blur(14px);
+  transform: translateX(100%);
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: auto;
+  font-family: 'Orbitron', 'Trebuchet MS', sans-serif;
+  color: rgba(232, 248, 255, 0.92);
+}
+
+.panelOpen {
+  transform: translateX(0);
+}
+
+.header {
+  position: relative;
+  padding: 26px 52px 18px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.name {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  text-shadow: 0 0 16px rgba(var(--accent-rgb, 46, 230, 214), 0.5);
+}
+
+.tagline {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(200, 220, 235, 0.65);
+  font-family: 'Trebuchet MS', sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.closeBtn {
+  position: absolute;
+  top: 20px;
+  right: 18px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(232, 248, 255, 0.8);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.closeBtn:hover {
+  background: rgba(var(--accent-rgb, 46, 230, 214), 0.14);
+  border-color: rgba(var(--accent-rgb, 46, 230, 214), 0.4);
+  transform: scale(1.05);
+}
+
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.sectionTitle {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(200, 220, 235, 0.5);
+}
+
+.agentList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agentRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.statusDot {
+  margin-top: 4px;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.agentMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agentNameRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agentName {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: rgba(232, 248, 255, 0.95);
+}
+
+.agentRole {
+  font-size: 11px;
+  font-family: 'Trebuchet MS', sans-serif;
+  color: rgba(200, 220, 235, 0.55);
+}
+
+.agentTask {
+  font-size: 11.5px;
+  font-family: 'Trebuchet MS', sans-serif;
+  font-style: italic;
+  color: rgba(var(--accent-rgb, 46, 230, 214), 0.85);
+}
+
+.emptyNote {
+  font-size: 12px;
+  font-family: 'Trebuchet MS', sans-serif;
+  color: rgba(200, 220, 235, 0.45);
+  font-style: italic;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.statCard {
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.statLabel {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(200, 220, 235, 0.5);
+}
+
+.statValue {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.activityList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.activityRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.activityRow:last-child {
+  border-bottom: none;
+}
+
+.activityTime {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+.activityMessage {
+  font-size: 12.5px;
+  font-family: 'Trebuchet MS', sans-serif;
+  line-height: 1.45;
+  color: rgba(220, 236, 245, 0.85);
+}
