@@ -113,3 +113,16 @@ export const POD_SLUGS: Record<PodKey, string> = {
 export function podKeyFromSlug(slug: string): PodKey | undefined {
   return (Object.keys(POD_SLUGS) as PodKey[]).find((key) => POD_SLUGS[key] === slug);
 }
+
+/** Which next/font Google Font family (see lib/fonts.ts) each lab's detail-page
+ *  header renders in — centralized here so it's one lookup, not hardcoded per page. */
+export type DisplayFontKey = 'orbitron' | 'jetbrainsMono' | 'spaceGrotesk' | 'rajdhani' | 'chakraPetch' | 'ibmPlexSansBold';
+
+export const DISPLAY_FONT_BY_KEY: Record<PodKey, DisplayFontKey> = {
+  hudmeta: 'orbitron',
+  devLab: 'jetbrainsMono',
+  podLab: 'spaceGrotesk',
+  contentLab: 'rajdhani',
+  research: 'chakraPetch',
+  revenueBay: 'ibmPlexSansBold',
+};

@@ -1,6 +1,14 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getStructureAccent, podKeyFromSlug, POD_SLUGS, toCssHex, toRgbTriplet } from '@/lib/phaser/theme';
+import {
+  DISPLAY_FONT_BY_KEY,
+  getStructureAccent,
+  podKeyFromSlug,
+  POD_SLUGS,
+  toCssHex,
+  toRgbTriplet,
+} from '@/lib/phaser/theme';
+import { bodyFont, DISPLAY_FONT_CLASS } from '@/lib/fonts';
 import { MOCK_LAB_DATA, type MockAgent } from '@/lib/mockData';
 import styles from './page.module.css';
 
@@ -26,12 +34,17 @@ export default async function LabDetailPage({ params }: LabDetailPageProps) {
 
   const data = MOCK_LAB_DATA[key];
   const accent = getStructureAccent(key);
+  const displayFontClass = DISPLAY_FONT_CLASS[DISPLAY_FONT_BY_KEY[key]];
+  const isRevenueBay = key === 'revenueBay';
 
   return (
     <div
-      className={styles.page}
+      className={`${styles.page} ${bodyFont.variable}`}
       style={{ ['--accent' as string]: toCssHex(accent), ['--accent-rgb' as string]: toRgbTriplet(accent) }}
     >
+      <div className={styles.starfield} aria-hidden="true" />
+      <div className={styles.vignette} aria-hidden="true" />
+
       <div className={styles.topBar}>
         <Link href="/station" className={styles.backLink}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -44,7 +57,7 @@ export default async function LabDetailPage({ params }: LabDetailPageProps) {
 
       <div className={styles.content}>
         <header className={styles.header}>
-          <h1 className={styles.name}>{data.name}</h1>
+          <h1 className={`${styles.name} ${displayFontClass}`}>{data.name}</h1>
           <p className={styles.tagline}>{data.tagline}</p>
         </header>
 
@@ -58,7 +71,7 @@ export default async function LabDetailPage({ params }: LabDetailPageProps) {
                 <div className={styles.agentCard} key={agent.name}>
                   <div className={styles.agentTop}>
                     <span
-                      className={styles.statusDot}
+                      className={`${styles.statusDot} ${agent.status === 'working' ? styles.statusDotPulsing : ''}`}
                       style={{ color: STATUS_COLOR[agent.status], background: STATUS_COLOR[agent.status] }}
                     />
                     <span className={styles.agentName}>{agent.name}</span>
@@ -78,7 +91,7 @@ export default async function LabDetailPage({ params }: LabDetailPageProps) {
             {data.stats.map((stat) => (
               <div className={styles.statCard} key={stat.label}>
                 <div className={styles.statLabel}>{stat.label}</div>
-                <div className={styles.statValue}>{stat.value}</div>
+                <div className={`${styles.statValue} ${isRevenueBay ? styles.tabularNums : ''}`}>{stat.value}</div>
               </div>
             ))}
           </div>
